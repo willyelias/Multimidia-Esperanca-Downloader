@@ -73,6 +73,8 @@ class DownloadItem(ctk.CTkFrame):
         trim_range=None,
         prefetched_info=None,
         on_complete_callback=None,
+        ytdlp_ready_event=None,
+        ffmpeg_ready_event=None,
         **kwargs,
     ):
         super().__init__(master, **kwargs)
@@ -86,6 +88,8 @@ class DownloadItem(ctk.CTkFrame):
         self.trim_range = trim_range  # (start_str, end_str) ou None
         self.prefetched_info = prefetched_info
         self.on_complete_callback = on_complete_callback
+        self.ytdlp_ready_event = ytdlp_ready_event
+        self.ffmpeg_ready_event = ffmpeg_ready_event
 
         self.processo = None
         self.is_cancelled = False
@@ -342,12 +346,24 @@ class DownloadItem(ctk.CTkFrame):
             clean_url = self.url.split("?turnstile")[0].strip()
             ext_final = "mp3" if self.mode == "audio" else "mp4"
             creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+            # Aguarda na fila caso o yt-dlp ainda esteja baixando
+            if self.ytdlp_ready_event and not self.ytdlp_ready_event.is_set():
+                self._update_ui(0.01, "⏳ Na fila (Aguardando yt-dlp finalizar download)...")
+                while not self.ytdlp_ready_event.wait(0.3):
+                    if self.is_cancelled:
+                        return
+
             yt_dlp_bin = self.tools_path.get("yt-dlp")
+            while (not yt_dlp_bin or not os.path.exists(yt_dlp_bin)) and not self.is_cancelled:
+                self._update_ui(0.01, "⏳ Na fila (Aguardando yt-dlp)...")
+                sleep(0.5)
+                yt_dlp_bin = self.tools_path.get("yt-dlp")
 
-            if not yt_dlp_bin or not os.path.exists(yt_dlp_bin):
-                raise RuntimeError("yt-dlp não encontrado. Aguarde a instalação na barra inferior.")
+            if self.is_cancelled:
+                return
 
-            # 1. OBTENÇÃO DE METADADOS (Ou usa os dados já carregados da playlist)
+            # 1. OBTENÇÃO DE METADADOS (Já carrega título e capa enquanto o FFmpeg baixa!)
             if self.prefetched_info and self.prefetched_info.get("title"):
                 self.title_text = self.prefetched_info["title"]
                 thumb_url = self.prefetched_info.get("thumbnail")
@@ -421,6 +437,17 @@ class DownloadItem(ctk.CTkFrame):
                 if thumb_url:
                     self.carregar_thumbnail(thumb_url)
                 self._update_ui(0.05, "Preparando arquivo...", title=self.title_text)
+
+            # Aguarda na fila caso o FFmpeg ainda esteja sendo baixado na barra inferior
+            if self.ffmpeg_ready_event and not self.ffmpeg_ready_event.is_set():
+                self._update_ui(
+                    0.06,
+                    "⏳ Na fila (Aguardando download do FFmpeg concluir)...",
+                    title=self.title_text,
+                )
+                while not self.ffmpeg_ready_event.wait(0.3):
+                    if self.is_cancelled:
+                        return
 
             # 2. CÁLCULO DE NOME ÚNICO E SEGURO PARA WINDOWS
             base_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", self.title_text).strip()
@@ -582,12 +609,22 @@ class DownloadItem(ctk.CTkFrame):
 class ConverterItem(ctk.CTkFrame):
     """Card individual da fila de conversão com barra de progresso real."""
 
-    def __init__(self, master, filepath, output_folder, tools_path, target_format, **kwargs):
+    def __init__(
+        self,
+        master,
+        filepath,
+        output_folder,
+        tools_path,
+        target_format,
+        ffmpeg_ready_event=None,
+        **kwargs,
+    ):
         super().__init__(master, **kwargs)
         self.filepath = filepath
         self.output_folder = output_folder
         self.tools = tools_path
         self.target_format = target_format
+        self.ffmpeg_ready_event = ffmpeg_ready_event
         self.grid_columnconfigure(1, weight=1)
 
         # Cores para o conversor
@@ -651,6 +688,14 @@ class ConverterItem(ctk.CTkFrame):
 
     def _convert(self):
         try:
+            if self.ffmpeg_ready_event and not self.ffmpeg_ready_event.is_set():
+                self._update_conv_ui(
+                    0.02,
+                    "⏳ Na fila (Aguardando download do FFmpeg concluir)...",
+                    color="#FBBF24",
+                )
+                self.ffmpeg_ready_event.wait()
+
             filename = os.path.splitext(os.path.basename(self.filepath))[0]
             output_file = os.path.join(self.output_folder, f"{filename}.{self.target_format}")
             count = 1
@@ -660,8 +705,14 @@ class ConverterItem(ctk.CTkFrame):
                 count += 1
 
             ffmpeg = self.tools.get("ffmpeg")
-            if not ffmpeg or not os.path.exists(ffmpeg):
-                raise RuntimeError("FFmpeg não encontrado. Aguarde a instalação.")
+            while not ffmpeg or not os.path.exists(ffmpeg):
+                self._update_conv_ui(
+                    0.02,
+                    "⏳ Na fila (Aguardando FFmpeg)...",
+                    color="#FBBF24",
+                )
+                sleep(0.5)
+                ffmpeg = self.tools.get("ffmpeg")
 
             cmd = [ffmpeg, "-y", "-i", self.filepath]
             if self.target_format == "mp4":
@@ -746,7 +797,25 @@ class App(ctk.CTk):
             "download_folder", os.path.join(os.path.expanduser("~"), "Downloads")
         )
         self.cookie_file = self.settings.get("cookie_file", None)
-        self.tools = {"ffmpeg": None, "yt-dlp": None}
+
+        # Eventos de sincronização para permitir enfileiramento imediato enquanto baixa ferramentas
+        self.ytdlp_ready_event = threading.Event()
+        self.ffmpeg_ready_event = threading.Event()
+
+        yt_init = os.path.join(self.bin_dir, "yt-dlp.exe")
+        ff_init = os.path.join(self.bin_dir, "ffmpeg.exe")
+        sys_yt_init = shutil.which("yt-dlp")
+        sys_ff_init = shutil.which("ffmpeg")
+
+        self.tools = {
+            "yt-dlp": yt_init if os.path.exists(yt_init) else sys_yt_init,
+            "ffmpeg": ff_init if os.path.exists(ff_init) else sys_ff_init,
+        }
+        if self.tools["yt-dlp"]:
+            self.ytdlp_ready_event.set()
+        if self.tools["ffmpeg"]:
+            self.ffmpeg_ready_event.set()
+
         self.history_data = self._load_history()
 
         self.grid_columnconfigure(0, weight=1)
@@ -1257,10 +1326,6 @@ class App(ctk.CTk):
             self._save_settings()
 
     def add_conversion(self, target_format):
-        if not self.tools.get("ffmpeg") or not os.path.exists(self.tools["ffmpeg"]):
-            return messagebox.showerror(
-                "Aguarde", "O FFmpeg ainda está sendo preparado na barra inferior."
-            )
         filetypes = (
             [("Vídeos", "*.mp4;*.mkv;*.avi;*.mov;*.webm;*.flv;*.ts")]
             if target_format == "mp4"
@@ -1269,7 +1334,12 @@ class App(ctk.CTk):
         files = filedialog.askopenfilenames(filetypes=filetypes)
         for f in files:
             ConverterItem(
-                self.scroll_conv, f, self.download_folder, self.tools, target_format
+                self.scroll_conv,
+                f,
+                self.download_folder,
+                self.tools,
+                target_format,
+                ffmpeg_ready_event=self.ffmpeg_ready_event,
             ).pack(fill="x", padx=5, pady=5)
 
     # --- GERENCIAMENTO E ATUALIZAÇÃO DE FERRAMENTAS (yt-dlp + FFmpeg) ---
@@ -1341,6 +1411,11 @@ class App(ctk.CTk):
                         "Baixando yt-dlp",
                     )
 
+            # Assim que o yt-dlp estiver disponível, já libera a leitura de metadados/capas na fila!
+            self.tools["yt-dlp"] = yt if os.path.exists(yt) else sys_yt
+            if self.tools["yt-dlp"]:
+                self.ytdlp_ready_event.set()
+
             if not os.path.exists(ff):
                 if sys_ff and not force:
                     ff = sys_ff
@@ -1372,6 +1447,9 @@ class App(ctk.CTk):
                 "yt-dlp": yt if os.path.exists(yt) else sys_yt,
                 "ffmpeg": ff if os.path.exists(ff) else sys_ff,
             }
+            if self.tools["yt-dlp"]:
+                self.ytdlp_ready_event.set()
+            self.ffmpeg_ready_event.set()
 
             if self.tools["yt-dlp"] and self.tools["ffmpeg"]:
                 self._set_tools_status(
@@ -1399,6 +1477,9 @@ class App(ctk.CTk):
                 "yt-dlp": yt if os.path.exists(yt) else sys_yt,
                 "ffmpeg": ff if os.path.exists(ff) else sys_ff,
             }
+            if self.tools["yt-dlp"]:
+                self.ytdlp_ready_event.set()
+            self.ffmpeg_ready_event.set()
             self._set_tools_status(
                 f"⚠️ Erro na atualização: {str(e)[:30]}",
                 pct=0.0,
@@ -1411,11 +1492,6 @@ class App(ctk.CTk):
         url = self.entry_link.get().strip()
         if not url:
             return
-        if not self.tools.get("yt-dlp") or not os.path.exists(self.tools["yt-dlp"]):
-            return messagebox.showwarning(
-                "Aguarde",
-                "Os componentes (yt-dlp / FFmpeg) ainda estão sendo baixados.\nAcompanhe a barra de progresso no rodapé.",
-            )
 
         # Valida recorte de tempo se ativado
         trim_range = None
@@ -1468,6 +1544,8 @@ class App(ctk.CTk):
                 trim_range=trim_range,
                 prefetched_info=prefetched_info,
                 on_complete_callback=self._add_to_history,
+                ytdlp_ready_event=self.ytdlp_ready_event,
+                ffmpeg_ready_event=self.ffmpeg_ready_event,
             )
             item.pack(fill="x", padx=5, pady=5)
             item.start()
@@ -1477,6 +1555,9 @@ class App(ctk.CTk):
     def _expandir_playlist(self, url, mode, quality, subs, auth_config, trim_range):
         """Busca os vídeos de uma playlist com --flat-playlist e adiciona cada um na fila."""
         try:
+            if not self.ytdlp_ready_event.is_set():
+                self.ytdlp_ready_event.wait()
+
             self._set_tools_status(
                 "📋 Carregando vídeos da Playlist...", pct=0.5, color="#3B8ED0"
             )
