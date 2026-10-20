@@ -121,12 +121,12 @@ function showToast(message) {
   }, 4200);
 }
 
-// --- DISPARO AUTOMÁTICO DE DOWNLOAD NO COMPUTADOR ---
+// --- DISPARO AUTOMÁTICO E BLINDADO DE DOWNLOAD NO COMPUTADOR ---
 function triggerAutoSaveToComputer(downloadUrl, filename = "video") {
   if (!downloadUrl) return;
-  try {
-    // O servidor envia Content-Disposition: attachment, então criar um link/iframe oculto
-    // inicia imediatamente a transferência nativa do arquivo para a pasta Downloads do PC
+
+  // Para arquivos gerados localmente no navegador (blob:)
+  if (downloadUrl.startsWith("blob:")) {
     const a = document.createElement("a");
     a.href = downloadUrl;
     a.setAttribute("download", filename);
@@ -134,9 +134,23 @@ function triggerAutoSaveToComputer(downloadUrl, filename = "video") {
     document.body.appendChild(a);
     a.click();
     setTimeout(() => a.remove(), 2000);
-  } catch (_) {
-    window.location.assign(downloadUrl);
+    return;
   }
+
+  // Para streams remotos (Content-Disposition: attachment):
+  // Usa um iframe oculto com sandbox="allow-downloads" estrito (SEM allow-scripts, SEM allow-popups, SEM allow-top-navigation).
+  // Isso garante no nível do motor do navegador que APENAS o arquivo .mp4/.mp3 seja baixado e NENHUM redirecionamento ou aba externa possa abrir!
+  const dlFrame = document.createElement("iframe");
+  dlFrame.setAttribute("sandbox", "allow-downloads");
+  dlFrame.setAttribute("referrerpolicy", "no-referrer");
+  dlFrame.style.display = "none";
+  dlFrame.src = downloadUrl;
+  document.body.appendChild(dlFrame);
+  setTimeout(() => {
+    try {
+      dlFrame.remove();
+    } catch (_) {}
+  }, 60000);
 }
 
 // --- UTILITÁRIOS ---
@@ -414,13 +428,15 @@ async function createDownloadCard(opts) {
   });
   actionsEl.appendChild(btnPreview);
 
-  // Botão Baixar Novamente (⬇) direto do CDN limpo
-  const aSave = document.createElement("a");
-  aSave.className = `btn-action ${isAudio ? "save-audio" : "save-video"}`;
-  aSave.href = finalDownloadUrl;
-  aSave.download = safeName;
-  aSave.innerHTML = isAudio ? "⬇ Salvar MP3" : "⬇ Salvar MP4";
-  actionsEl.appendChild(aSave);
+  // Botão Baixar Novamente (⬇) usando transferência blindada (sem sair da página)
+  const btnSave = document.createElement("button");
+  btnSave.className = `btn-action ${isAudio ? "save-audio" : "save-video"}`;
+  btnSave.innerHTML = isAudio ? "⬇ Salvar MP3" : "⬇ Salvar MP4";
+  btnSave.addEventListener("click", () => {
+    triggerAutoSaveToComputer(finalDownloadUrl, safeName);
+    showToast("⬇ Iniciando transferência do arquivo para o computador...");
+  });
+  actionsEl.appendChild(btnSave);
 
   // Botão Remover da lista (✕)
   const btnRemove = document.createElement("button");
