@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+build/
+dist/
+venv/
+.venv/
+
+# Binários temporários
+temp.zip
+ffmpeg_temp.zip
+*.exe
+
+# Node / Netlify
+node_modules/
+.netlify/
+
+# OS
+.DS_Store
+Thumbs.db
