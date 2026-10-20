@@ -1,7 +1,8 @@
 {
-  "name": "yt-downloader-ultimate",
+  "name": "multimidia-esperanca-downloader",
   "version": "2.0.0",
-  "description": "Youtube & Multi-Site Video/Audio Downloader Ultimate (Desktop Python + Web Netlify)",
+  "description": "Multimídia Esperança Downloader (Web https://multimidiadownloadesperanca.netlify.app + Windows .exe)",
+  "homepage": "https://multimidiadownloadesperanca.netlify.app",
   "private": true,
   "type": "module",
   "scripts": {
