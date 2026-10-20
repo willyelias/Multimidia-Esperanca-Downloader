@@ -776,7 +776,7 @@ class ConverterItem(ctk.CTkFrame):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Multimidia Youtube Downloader Esperança")
+        self.title("Multimídia Esperança Downloader")
         self.geometry("980x720")
         self.minsize(860, 620)
         try:
