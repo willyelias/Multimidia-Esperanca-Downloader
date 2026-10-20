@@ -121,36 +121,25 @@ function showToast(message) {
   }, 4200);
 }
 
-// --- DISPARO AUTOMÁTICO E BLINDADO DE DOWNLOAD NO COMPUTADOR ---
+// --- DISPARO AUTOMÁTICO DE DOWNLOAD NO COMPUTADOR ---
 function triggerAutoSaveToComputer(downloadUrl, filename = "video") {
   if (!downloadUrl) return;
 
-  // Para arquivos gerados localmente no navegador (blob:)
-  if (downloadUrl.startsWith("blob:")) {
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.setAttribute("download", filename);
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => a.remove(), 2000);
-    return;
-  }
-
-  // Para streams remotos (Content-Disposition: attachment):
-  // Usa um iframe oculto com sandbox="allow-downloads" estrito (SEM allow-scripts, SEM allow-popups, SEM allow-top-navigation).
-  // Isso garante no nível do motor do navegador que APENAS o arquivo .mp4/.mp3 seja baixado e NENHUM redirecionamento ou aba externa possa abrir!
-  const dlFrame = document.createElement("iframe");
-  dlFrame.setAttribute("sandbox", "allow-downloads");
-  dlFrame.setAttribute("referrerpolicy", "no-referrer");
-  dlFrame.style.display = "none";
-  dlFrame.src = downloadUrl;
-  document.body.appendChild(dlFrame);
+  // O link direto possui cabeçalho HTTP "Content-Disposition: attachment".
+  // Ao acionar via <a> na mesma janela (sem target="_blank" e sem iframe bloqueado por X-Frame-Options),
+  // o navegador mantém a página atual intacta e inicia imediatamente o download do arquivo .mp4/.mp3!
+  const a = document.createElement("a");
+  a.href = downloadUrl;
+  a.setAttribute("download", filename);
+  a.setAttribute("rel", "noreferrer");
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
   setTimeout(() => {
     try {
-      dlFrame.remove();
+      a.remove();
     } catch (_) {}
-  }, 60000);
+  }, 3000);
 }
 
 // --- UTILITÁRIOS ---
@@ -312,25 +301,67 @@ async function createDownloadCard(opts) {
   infoEl.textContent = `${prefix} Iniciando download: 10%`;
   barEl.style.width = "10%";
 
-  // Passo 2: Inicia o job limpo via /api/download
+  // Passo 2: Inicia o job diretamente pelo IP do navegador do usuário (com fallback Serverless)
+  // Isso garante que o token de download gerado pelo CDN seja vinculado ao IP do próprio computador do usuário!
   let initData = null;
-  try {
-    const res = await fetch("/api/download", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "init",
-        url,
-        mode,
-        quality,
-        trimStart: tStart,
-        trimEnd: tEnd,
-      }),
-    });
-    if (res.ok) {
-      initData = await res.json();
+  const formatParam = isAudio
+    ? "mp3"
+    : quality === "2160"
+    ? "4k"
+    : ["1080", "720", "480", "360"].includes(String(quality))
+    ? String(quality)
+    : "1080";
+
+  if (!url.toLowerCase().includes("tiktok.com")) {
+    for (const domain of ["p.savenow.to", "p.lbserver.xyz"]) {
+      try {
+        const directInitUrl = new URL(`https://${domain}/api/v2/download`);
+        directInitUrl.searchParams.set("button", "1");
+        directInitUrl.searchParams.set("format", formatParam);
+        directInitUrl.searchParams.set("url", url);
+        if (tStart) directInitUrl.searchParams.set("start_time", tStart);
+        if (tEnd) directInitUrl.searchParams.set("end_time", tEnd);
+
+        const r = await fetch(directInitUrl.toString());
+        if (r.ok) {
+          const d = await r.json();
+          if (d && d.id) {
+            initData = {
+              status: "polling",
+              jobId: d.id,
+              progressUrl:
+                d.progress_url ||
+                `https://${domain}/api/progress?id=${encodeURIComponent(d.id)}`,
+              title: d.title || d.info?.title || null,
+              thumbnail: d.thumbnail_url || d.info?.image || null,
+            };
+            break;
+          }
+        }
+      } catch (_) {}
     }
-  } catch (_) {}
+  }
+
+  // Fallback via Netlify Function (ex: TikTok sem marca d'água via TikWM)
+  if (!initData) {
+    try {
+      const res = await fetch("/api/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "init",
+          url,
+          mode,
+          quality,
+          trimStart: tStart,
+          trimEnd: tEnd,
+        }),
+      });
+      if (res.ok) {
+        initData = await res.json();
+      }
+    } catch (_) {}
+  }
 
   if (cancelled) return;
 
@@ -355,35 +386,76 @@ async function createDownloadCard(opts) {
 
   let finalDownloadUrl = initData.downloadUrl || null;
 
-  // Passo 3: Se estiver em processamento ("polling"), acompanha o progresso real até 100%
+  // Passo 3: Se estiver em processamento ("polling"), acompanha o progresso real direto do navegador até 100%
   if (initData.status === "polling" && initData.jobId) {
     const jobId = initData.jobId;
-    const progressUrl = initData.progressUrl || "";
+    const progressUrl =
+      initData.progressUrl ||
+      `https://p.savenow.to/api/progress?id=${encodeURIComponent(jobId)}`;
 
-    for (let attempt = 0; attempt < 60; attempt++) {
+    for (let attempt = 0; attempt < 70; attempt++) {
       if (cancelled) return;
       await new Promise((r) => setTimeout(r, 1400));
       if (cancelled) return;
 
       try {
-        const progRes = await fetch(
-          `/api/download?action=progress&jobId=${encodeURIComponent(
-            jobId
-          )}&progressUrl=${encodeURIComponent(progressUrl)}`
-        );
-        if (!progRes.ok) continue;
-        const progData = await progRes.json();
+        let progData = null;
+
+        // Consulta direta pelo navegador (mantém o mesmo IP do cliente)
+        try {
+          const directProgRes = await fetch(progressUrl);
+          if (directProgRes.ok) {
+            const raw = await directProgRes.json();
+            const rawProg = typeof raw.progress === "number" ? raw.progress : 0;
+            const isDone = Boolean(raw.download_url && Number(raw.success) === 1);
+            progData = {
+              status: isDone ? "completed" : "processing",
+              progress: isDone ? 100 : Math.min(99, Math.max(8, Math.round(rawProg / 10))),
+              downloadUrl: raw.download_url || null,
+              altUrls: Array.isArray(raw.alternative_download_urls)
+                ? raw.alternative_download_urls.map((a) => a.url).filter(Boolean)
+                : [],
+              error:
+                Number(raw.success) === 0 && raw.text && rawProg === 1000
+                  ? raw.text
+                  : null,
+            };
+          }
+        } catch (_) {}
+
+        // Fallback via função serverless se necessário
+        if (!progData) {
+          const progRes = await fetch(
+            `/api/download?action=progress&jobId=${encodeURIComponent(
+              jobId
+            )}&progressUrl=${encodeURIComponent(progressUrl)}`
+          );
+          if (progRes.ok) {
+            progData = await progRes.json();
+          }
+        }
+
+        if (!progData) continue;
 
         if (progData.error) {
           throw new Error(progData.error);
         }
 
-        const pct = progData.progress || Math.min(95, 15 + attempt * 5);
+        const pct = progData.progress || Math.min(95, 12 + attempt * 4);
         barEl.style.width = `${pct}%`;
         infoEl.textContent = `${prefix} Baixando e preparando arquivo: ${pct}%`;
 
         if (progData.status === "completed" && progData.downloadUrl) {
           finalDownloadUrl = progData.downloadUrl;
+          // Verifica rapidamente se o nó CDN responde; se falhar e houver URL alternativa, usa a alternativa
+          if (progData.altUrls && progData.altUrls.length > 0) {
+            try {
+              const check = await fetch(finalDownloadUrl, { method: "HEAD" });
+              if (!check.ok) finalDownloadUrl = progData.altUrls[0];
+            } catch (_) {
+              finalDownloadUrl = progData.altUrls[0];
+            }
+          }
           break;
         }
       } catch (err) {
