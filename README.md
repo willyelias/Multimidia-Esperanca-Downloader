@@ -1,6 +1,8 @@
-# 🎬 Youtube Downloader Ultimate - Igreja & Mídia (v2.0)
+# 🎬 Multimídia Esperança Downloader (v2.0)
 
-Aplicativo completo (**Desktop em Python/CustomTkinter** + **Aplicação Web Serverless para Netlify**) para baixar vídeos e áudios do YouTube, TikTok, Instagram, Facebook, X/Twitter, Vimeo e dezenas de outros sites, além de converter e recortar arquivos de mídia.
+🌐 **Site Online:** [https://multimidiadownloadesperanca.netlify.app](https://multimidiadownloadesperanca.netlify.app)
+
+Aplicativo completo (**Desktop Windows `.exe` em Python/CustomTkinter** + **Aplicação Web Serverless no Netlify**) para baixar vídeos e áudios do YouTube, TikTok, Instagram, Facebook, X/Twitter, Vimeo e dezenas de outros sites, além de converter e recortar arquivos de mídia.
 
 ---
 
@@ -27,8 +29,8 @@ Aplicativo completo (**Desktop em Python/CustomTkinter** + **Aplicação Web Ser
 
 ### Instalação e Execução
 ```bash
-git clone https://github.com/willyelias/yt-downloader-ultimate.git
-cd yt-downloader-ultimate
+git clone https://github.com/willyelias/Multimidia-Esperanca-Downloader.git
+cd Multimidia-Esperanca-Downloader
 pip install -r requirements.txt
 python app.py
 ```
@@ -48,7 +50,7 @@ Este repositório já está pré-configurado com o arquivo [`netlify.toml`](./ne
 
 1. Acesse o painel do **[Netlify](https://app.netlify.com/)**.
 2. Clique em **Add new site** ➔ **Import an existing project**.
-3. Escolha **GitHub** e selecione o repositório **`willyelias/yt-downloader-ultimate`**.
+3. Escolha **GitHub** e selecione o repositório **`willyelias/Multimidia-Esperanca-Downloader`**.
 4. O Netlify detectará automaticamente as configurações do `netlify.toml`:
    - **Publish directory**: `web`
    - **Functions directory**: `netlify/functions`
@@ -59,7 +61,7 @@ Este repositório já está pré-configurado com o arquivo [`netlify.toml`](./ne
 ## 📂 Estrutura do Projeto
 
 ```text
-yt-downloader-ultimate/
+Multimidia-Esperanca-Downloader/
 ├── app.py                        # Ponto de entrada principal (Desktop)
 ├── requirements.txt              # Dependências Python (CustomTkinter, yt-dlp, Pillow, etc.)
 ├── netlify.toml                  # Configuração de Deploy e Serverless do Netlify
