@@ -1,4 +1,5 @@
-// Netlify Serverless Function: Resolve stream direto (MP4 / MP3) para YouTube, TikTok, Instagram, X, etc.
+// Netlify Serverless Function: Inicia e acompanha a conversão limpa via JSON (Sem iframes, sem anúncios)
+// Retorna link direto com Content-Disposition: attachment para download automático no computador.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -7,22 +8,9 @@ const CORS_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
 };
 
-function extractYouTubeId(url) {
-  try {
-    const u = new URL(url);
-    if (u.hostname.includes("youtu.be")) {
-      return u.pathname.slice(1).split("/")[0];
-    }
-    if (u.searchParams.get("v")) {
-      return u.searchParams.get("v");
-    }
-    const shortsMatch = u.pathname.match(/\/(shorts|embed|live)\/([^/?&]+)/);
-    if (shortsMatch) return shortsMatch[2];
-  } catch (_) {}
-  return null;
-}
+const API_DOMAINS = ["p.savenow.to", "p.lbserver.xyz"];
 
-async function fetchWithTimeout(resource, options = {}, timeout = 6000) {
+async function fetchWithTimeout(resource, options = {}, timeout = 6500) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
@@ -44,10 +32,90 @@ export async function handler(event) {
   }
 
   try {
-    const body = event.body ? JSON.parse(event.body) : event.queryStringParameters || {};
-    const targetUrl = (body.url || "").trim();
-    const mode = body.mode || "video"; // "video" | "audio"
-    const quality = body.quality || "1080"; // "2160", "1080", "720", "480"
+    const query = event.queryStringParameters || {};
+    const body = event.body ? JSON.parse(event.body) : {};
+    const action = body.action || query.action || (query.jobId || body.jobId ? "progress" : "init");
+
+    // --- ETAPA 2: CONSULTAR PROGRESSO DO JOB ---
+    if (action === "progress") {
+      const jobId = body.jobId || query.jobId;
+      const customProgressUrl = body.progressUrl || query.progressUrl;
+
+      if (!jobId && !customProgressUrl) {
+        return {
+          statusCode: 400,
+          headers: CORS_HEADERS,
+          body: JSON.stringify({ error: "jobId obrigatório para consultar progresso." }),
+        };
+      }
+
+      const urlsToTry = [];
+      if (customProgressUrl) urlsToTry.push(customProgressUrl);
+      for (const dom of API_DOMAINS) {
+        urlsToTry.push(`https://${dom}/api/progress?id=${encodeURIComponent(jobId)}`);
+      }
+
+      for (const progUrl of urlsToTry) {
+        try {
+          const r = await fetchWithTimeout(
+            progUrl,
+            {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                Accept: "application/json",
+              },
+            },
+            5000
+          );
+          if (!r.ok) continue;
+          const data = await r.json();
+
+          // progress vem de 0 a 1000
+          const rawProg = typeof data.progress === "number" ? data.progress : 0;
+          const percent = Math.min(100, Math.max(5, Math.round(rawProg / 10)));
+          const isFinished = Boolean(data.download_url && Number(data.success) === 1);
+
+          let finalDownloadUrl = data.download_url || null;
+          if (
+            !finalDownloadUrl &&
+            Array.isArray(data.alternative_download_urls) &&
+            data.alternative_download_urls.length > 0
+          ) {
+            finalDownloadUrl = data.alternative_download_urls[0].url || null;
+          }
+
+          return {
+            statusCode: 200,
+            headers: CORS_HEADERS,
+            body: JSON.stringify({
+              status: isFinished ? "completed" : "processing",
+              progress: isFinished ? 100 : percent,
+              downloadUrl: finalDownloadUrl,
+              statusText: data.text || (isFinished ? "Concluído!" : "Processando mídia..."),
+              error: Number(data.success) === 0 && data.text && rawProg === 1000 ? data.text : null,
+            }),
+          };
+        } catch (_) {}
+      }
+
+      return {
+        statusCode: 200,
+        headers: CORS_HEADERS,
+        body: JSON.stringify({
+          status: "processing",
+          progress: 25,
+          downloadUrl: null,
+          statusText: "Preparando arquivo...",
+        }),
+      };
+    }
+
+    // --- ETAPA 1: INICIAR DOWNLOAD / TRANSCODIFICAÇÃO ---
+    const targetUrl = (body.url || query.url || "").trim();
+    const mode = body.mode || query.mode || "video"; // "video" | "audio"
+    const quality = String(body.quality || query.quality || "1080");
+    const trimStart = body.trimStart || query.trimStart || "";
+    const trimEnd = body.trimEnd || query.trimEnd || "";
 
     if (!targetUrl) {
       return {
@@ -57,9 +125,7 @@ export async function handler(event) {
       };
     }
 
-    const ytId = extractYouTubeId(targetUrl);
-
-    // 1. TikTok Direct Resolver via TikWM
+    // 1. Se for TikTok, tenta resolução instantânea sem marca d'água via TikWM
     if (targetUrl.toLowerCase().includes("tiktok.com")) {
       try {
         const tikRes = await fetchWithTimeout(
@@ -70,18 +136,20 @@ export async function handler(event) {
         const tikJson = await tikRes.json();
         if (tikJson && tikJson.data) {
           const d = tikJson.data;
-          const downloadUrl = mode === "audio" ? d.music : d.hdplay || d.play;
-          if (downloadUrl) {
+          const directUrl = mode === "audio" ? d.music : d.hdplay || d.play;
+          if (directUrl) {
             return {
               statusCode: 200,
               headers: CORS_HEADERS,
               body: JSON.stringify({
-                status: "stream",
-                downloadUrl,
-                filename: `${(d.title || "tiktok_video").slice(0, 60)}.${
+                status: "completed",
+                progress: 100,
+                downloadUrl: directUrl,
+                title: d.title || "TikTok Video",
+                thumbnail: d.cover || d.origin_cover || null,
+                filename: `${(d.title || "tiktok_media").slice(0, 60)}.${
                   mode === "audio" ? "mp3" : "mp4"
                 }`,
-                provider: "TikWM Direct",
               }),
             };
           }
@@ -89,123 +157,62 @@ export async function handler(event) {
       } catch (_) {}
     }
 
-    // 2. YouTube Direct Stream via Piped / Invidious Instances
-    if (ytId) {
-      const pipedInstances = [
-        "https://pipedapi.kavin.rocks",
-        "https://pipedapi.tokhmi.xyz",
-        "https://pipedapi.moomoo.me",
-        "https://api-piped.mha.fi",
-      ];
+    // 2. Inicia job JSON direto nos servidores de transcodificação (Suporta YouTube, Instagram, Facebook, X, Vimeo, etc.)
+    const formatParam =
+      mode === "audio"
+        ? "mp3"
+        : quality === "2160"
+        ? "4k"
+        : ["1080", "720", "480", "360"].includes(quality)
+        ? quality
+        : "1080";
 
-      for (const base of pipedInstances) {
-        try {
-          const r = await fetchWithTimeout(`${base}/streams/${ytId}`, {}, 4200);
-          if (!r.ok) continue;
-          const data = await r.json();
+    for (const domain of API_DOMAINS) {
+      try {
+        const apiUrl = new URL(`https://${domain}/api/v2/download`);
+        apiUrl.searchParams.set("button", "1");
+        apiUrl.searchParams.set("format", formatParam);
+        apiUrl.searchParams.set("url", targetUrl);
+        if (trimStart) apiUrl.searchParams.set("start_time", trimStart);
+        if (trimEnd) apiUrl.searchParams.set("end_time", trimEnd);
 
-          if (mode === "audio" && Array.isArray(data.audioStreams) && data.audioStreams.length > 0) {
-            const sortedAudio = [...data.audioStreams].sort(
-              (a, b) => (b.bitrate || 0) - (a.bitrate || 0)
-            );
-            const bestAudio = sortedAudio[0];
-            if (bestAudio && bestAudio.url) {
-              return {
-                statusCode: 200,
-                headers: CORS_HEADERS,
-                body: JSON.stringify({
-                  status: "stream",
-                  downloadUrl: bestAudio.url,
-                  filename: `${(data.title || ytId).slice(0, 80)}.mp3`,
-                  provider: "Piped Stream",
-                }),
-              };
-            }
-          }
+        const r = await fetchWithTimeout(
+          apiUrl.toString(),
+          {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+              Accept: "application/json",
+            },
+          },
+          6000
+        );
 
-          if (mode !== "audio" && Array.isArray(data.videoStreams) && data.videoStreams.length > 0) {
-            // Procura streams que já possuem áudio integrado (videoOnly === false)
-            const muxed = data.videoStreams.filter((s) => s.videoOnly === false && s.url);
-            const pool = muxed.length > 0 ? muxed : data.videoStreams.filter((s) => s.url);
-            if (pool.length > 0) {
-              const chosen =
-                pool.find((s) => (s.quality || "").includes(quality)) || pool[0];
-              return {
-                statusCode: 200,
-                headers: CORS_HEADERS,
-                body: JSON.stringify({
-                  status: "stream",
-                  downloadUrl: chosen.url,
-                  filename: `${(data.title || ytId).slice(0, 80)}.mp4`,
-                  provider: "Piped Stream",
-                }),
-              };
-            }
-          }
-        } catch (_) {}
-      }
+        if (!r.ok) continue;
+        const data = await r.json();
 
-      // Invidious fallback
-      const invidiousInstances = [
-        "https://inv.tux.pizza",
-        "https://invidious.nerdvpn.de",
-        "https://invidious.jing.rocks",
-      ];
-
-      for (const base of invidiousInstances) {
-        try {
-          const r = await fetchWithTimeout(`${base}/api/v1/videos/${ytId}`, {}, 4000);
-          if (!r.ok) continue;
-          const data = await r.json();
-          if (mode === "audio" && Array.isArray(data.adaptiveFormats)) {
-            const audios = data.adaptiveFormats.filter((f) =>
-              (f.type || "").startsWith("audio/")
-            );
-            if (audios.length > 0 && audios[0].url) {
-              return {
-                statusCode: 200,
-                headers: CORS_HEADERS,
-                body: JSON.stringify({
-                  status: "stream",
-                  downloadUrl: audios[0].url,
-                  filename: `${(data.title || ytId).slice(0, 80)}.mp3`,
-                  provider: "Invidious Direct",
-                }),
-              };
-            }
-          } else if (Array.isArray(data.formatStreams) && data.formatStreams.length > 0) {
-            const best = data.formatStreams[data.formatStreams.length - 1];
-            if (best && best.url) {
-              return {
-                statusCode: 200,
-                headers: CORS_HEADERS,
-                body: JSON.stringify({
-                  status: "stream",
-                  downloadUrl: best.url,
-                  filename: `${(data.title || ytId).slice(0, 80)}.mp4`,
-                  provider: "Invidious Direct",
-                }),
-              };
-            }
-          }
-        } catch (_) {}
-      }
+        if (data && data.id) {
+          return {
+            statusCode: 200,
+            headers: CORS_HEADERS,
+            body: JSON.stringify({
+              status: "polling",
+              jobId: data.id,
+              progressUrl:
+                data.progress_url || `https://${domain}/api/progress?id=${encodeURIComponent(data.id)}`,
+              title: data.title || data.info?.title || null,
+              thumbnail: data.thumbnail_url || data.info?.image || null,
+              progress: 10,
+            }),
+          };
+        }
+      } catch (_) {}
     }
 
-    // 3. Fallback Cloud Transcoder Engine (Loader.to / OceanSaver / Cobalt Compatible)
-    const formatParam = mode === "audio" ? "mp3" : quality === "2160" ? "4k" : quality || "1080";
-    const externalEngineUrl = `https://loader.to/api/button/?url=${encodeURIComponent(
-      targetUrl
-    )}&f=${encodeURIComponent(formatParam)}&color=2cc985`;
-
     return {
-      statusCode: 200,
+      statusCode: 502,
       headers: CORS_HEADERS,
       body: JSON.stringify({
-        status: "external_engine",
-        engineUrl: externalEngineUrl,
-        downloadUrl: externalEngineUrl,
-        provider: "Cloud Transcoder",
+        error: "Não foi possível iniciar o processamento deste link no momento. Verifique se o vídeo é público.",
       }),
     };
   } catch (err) {
@@ -213,7 +220,7 @@ export async function handler(event) {
       statusCode: 500,
       headers: CORS_HEADERS,
       body: JSON.stringify({
-        error: "Erro ao resolver stream de download.",
+        error: "Erro interno ao processar download.",
         details: err.message,
       }),
     };

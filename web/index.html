@@ -3,84 +3,107 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Youtube Downloader Ultimate - Igreja (Web & Desktop)</title>
+  <title>Youtube Downloader Ultimate • Igreja & Mídia</title>
   <meta name="description" content="Baixe vídeos e áudios do YouTube, TikTok, Instagram e mais em 4K, 1080p ou MP3, converta mídias locais e recorte trechos online." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
+  <!-- Efeitos de luz ambiente no fundo -->
+  <div class="ambient-glow glow-green"></div>
+  <div class="ambient-glow glow-blue"></div>
+
   <div class="app-shell">
-    <!-- Cabeçalho -->
+    <!-- Cabeçalho Principal -->
     <header class="app-header">
       <div class="brand">
-        <div class="brand-icon">🎬</div>
+        <div class="brand-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7"></polygon>
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+          </svg>
+        </div>
         <div>
-          <h1>Youtube Downloader Ultimate <span class="badge-igreja">Igreja & Mídia</span></h1>
-          <p class="subtitle">Baixe vídeos em até 4K, extraia MP3, recorte trechos e converta arquivos online</p>
+          <div class="title-row">
+            <h1>Youtube Downloader Ultimate</h1>
+            <span class="badge-igreja">Igreja & Mídia</span>
+          </div>
+          <p class="subtitle">Download direto de vídeos em até 4K, extração de áudio MP3 e recorte inteligente</p>
         </div>
       </div>
       <div class="header-actions">
         <span id="engineStatus" class="status-pill ready">
-          <span class="dot"></span> Motor Web Online Pronto
+          <span class="dot"></span> Motor Online Ativo
         </span>
-        <a href="https://github.com/willyelias/yt-downloader-ultimate" target="_blank" rel="noopener" class="btn-secondary btn-sm">
-          💻 GitHub / App Desktop
-        </a>
       </div>
     </header>
 
-    <!-- Navegação por Abas (Estilo CustomTkinter) -->
+    <!-- Navegação por Abas -->
     <nav class="tab-bar" role="tablist">
-      <button class="tab-btn active" data-tab="tab-downloader" role="tab">⬇ DOWNLOADER</button>
-      <button class="tab-btn" data-tab="tab-converter" role="tab">🔄 CONVERSOR & RECORTADOR</button>
-      <button class="tab-btn" data-tab="tab-history" role="tab">📜 HISTÓRICO <span id="historyCount" class="count-badge">0</span></button>
-      <button class="tab-btn" data-tab="tab-desktop" role="tab">🖥️ VERSÃO DESKTOP (WINDOWS)</button>
+      <button class="tab-btn active" data-tab="tab-downloader" role="tab">
+        <span>⬇</span> DOWNLOADER
+      </button>
+      <button class="tab-btn" data-tab="tab-converter" role="tab">
+        <span>🔄</span> CONVERSOR & RECORTADOR
+      </button>
+      <button class="tab-btn" data-tab="tab-history" role="tab">
+        <span>📜</span> HISTÓRICO <span id="historyCount" class="count-badge">0</span>
+      </button>
     </nav>
 
     <!-- ABA 1: DOWNLOADER -->
     <main id="tab-downloader" class="tab-panel active">
       <section class="control-card">
-        <!-- Linha 1: Input + Colar -->
+        <!-- Linha 1: Barra de Link + Colar -->
         <div class="url-row">
-          <input
-            type="url"
-            id="urlInput"
-            placeholder="Cole o link do YouTube, TikTok, Instagram, Facebook, X ou Playlist aqui..."
-            autocomplete="off"
-          />
+          <div class="url-input-wrapper">
+            <span class="url-icon">🔗</span>
+            <input
+              type="url"
+              id="urlInput"
+              placeholder="Cole o link do YouTube, TikTok, Instagram, Facebook, X ou Vimeo aqui..."
+              autocomplete="off"
+            />
+          </div>
           <button id="btnPaste" class="btn-neutral" title="Colar da área de transferência">
-            📋 Colar
+            📋 Colar Link
           </button>
         </div>
 
-        <!-- Linha 2: Modo, Qualidade, Escopo, Legendas, Botão Principal -->
+        <!-- Linha 2: Modo, Qualidade, Escopo, Legendas e Botão Adicionar -->
         <div class="options-row">
           <div class="segmented-control" id="modeSwitch">
             <button type="button" class="seg-btn active" data-mode="video">🎬 VÍDEO (MP4)</button>
             <button type="button" class="seg-btn" data-mode="audio">🎵 ÁUDIO (MP3)</button>
           </div>
 
-          <select id="qualitySelect" class="select-input" aria-label="Qualidade do vídeo">
-            <option value="2160">4K (Máxima)</option>
-            <option value="1080" selected>1080p (Full HD)</option>
-            <option value="720">720p (HD)</option>
-            <option value="480">480p (Leve)</option>
-          </select>
+          <div class="select-group">
+            <label for="qualitySelect" class="field-label">Qualidade</label>
+            <select id="qualitySelect" class="select-input" aria-label="Qualidade do vídeo">
+              <option value="2160">4K Ultra HD</option>
+              <option value="1080" selected>1080p Full HD</option>
+              <option value="720">720p HD</option>
+              <option value="480">480p Leve</option>
+            </select>
+          </div>
 
-          <select id="scopeSelect" class="select-input" aria-label="Escopo do link">
-            <option value="single" selected>Vídeo Único</option>
-            <option value="playlist">Playlist Completa</option>
-          </select>
+          <div class="select-group">
+            <label for="scopeSelect" class="field-label">Modo</label>
+            <select id="scopeSelect" class="select-input" aria-label="Escopo do link">
+              <option value="single" selected>Vídeo Único</option>
+              <option value="playlist">Playlist</option>
+            </select>
+          </div>
 
-          <label class="checkbox-label" id="subsLabel">
+          <label class="checkbox-pill" id="subsLabel">
             <input type="checkbox" id="subsCheck" />
-            <span>Legendas (PT/EN)</span>
+            <span>💬 Legendas</span>
           </label>
 
           <button id="btnAddQueue" class="btn-primary">
-            ＋ ADICIONAR À FILA
+            <span>⬇</span> BAIXAR AGORA
           </button>
         </div>
 
@@ -88,37 +111,48 @@
         <div class="advanced-row">
           <label class="checkbox-label">
             <input type="checkbox" id="trimCheck" />
-            <span>✂️ Recortar Trecho:</span>
+            <span>✂️ Recortar Trecho Específico:</span>
           </label>
-          <input
-            type="text"
-            id="trimStart"
-            class="time-input"
-            placeholder="Início (00:01:00)"
-            disabled
-          />
-          <span class="muted-text">até</span>
-          <input
-            type="text"
-            id="trimEnd"
-            class="time-input"
-            placeholder="Fim (00:02:30)"
-            disabled
-          />
-          <span class="hint-text">Suporta YouTube, Shorts, TikTok (sem marca d'água), Instagram Reels, Vimeo e mais.</span>
+          <div class="trim-inputs">
+            <input
+              type="text"
+              id="trimStart"
+              class="time-input"
+              placeholder="Início (00:01:00)"
+              disabled
+            />
+            <span class="muted-text">até</span>
+            <input
+              type="text"
+              id="trimEnd"
+              class="time-input"
+              placeholder="Fim (00:02:30)"
+              disabled
+            />
+          </div>
+          <div class="platforms-badges">
+            <span class="plat-tag">YouTube</span>
+            <span class="plat-tag">TikTok s/ Marca</span>
+            <span class="plat-tag">Instagram</span>
+            <span class="plat-tag">Facebook</span>
+          </div>
         </div>
       </section>
 
       <!-- Fila de Downloads -->
       <section class="queue-section">
         <div class="queue-header">
-          <h2>Fila de Downloads</h2>
+          <div class="queue-title-wrap">
+            <h2>Fila de Downloads</h2>
+            <span class="auto-save-hint">⚡ O arquivo é salvo automaticamente no seu computador ao atingir 100%</span>
+          </div>
           <button id="btnClearQueue" class="btn-text">Limpar concluídos</button>
         </div>
         <div id="downloadQueue" class="queue-list">
           <div class="empty-state" id="emptyQueueMsg">
             <div class="empty-icon">📥</div>
-            <p>Sua fila está vazia. Cole um link acima e clique em <strong>Adicionar à Fila</strong>.</p>
+            <h3>Pronto para baixar</h3>
+            <p>Cole um link de vídeo ou música acima e clique em <strong>Baixar Agora</strong>. O download iniciará automaticamente.</p>
           </div>
         </div>
       </section>
@@ -127,26 +161,36 @@
     <!-- ABA 2: CONVERSOR & RECORTADOR LOCAL (100% NO NAVEGADOR) -->
     <section id="tab-converter" class="tab-panel">
       <div class="control-card converter-card">
-        <h2>Conversor e Extrator de Áudio Local (No Navegador)</h2>
-        <p class="muted-text">
-          Selecione arquivos de vídeo ou áudio do seu computador/celular para extrair áudio ou recortar trechos instantaneamente sem enviar arquivos para servidores externos.
-        </p>
+        <div class="conv-header">
+          <h2>Conversor e Recortador de Mídia Local</h2>
+          <p class="muted-text">
+            Converta arquivos de vídeo ou áudio do seu computador e recorte trechos instantaneamente direto no navegador.
+          </p>
+        </div>
 
         <div class="converter-controls">
           <div class="trim-conv-group">
-            <label>✂️ Cortar Início (seg ou MM:SS):</label>
-            <input type="text" id="convTrimStart" class="time-input" placeholder="00:00" />
-            <label>Fim:</label>
-            <input type="text" id="convTrimEnd" class="time-input" placeholder="Até o fim" />
+            <span>✂️ Recorte Opcional:</span>
+            <input type="text" id="convTrimStart" class="time-input" placeholder="Início (00:00)" />
+            <span class="muted-text">até</span>
+            <input type="text" id="convTrimEnd" class="time-input" placeholder="Fim (ex: 02:30)" />
           </div>
 
           <div class="conv-buttons">
             <label class="btn-conv btn-conv-video">
-              🎬 Vídeo ➔ WebM / MP4 Stream
+              <span class="conv-icon">🎬</span>
+              <div>
+                <strong>Converter Vídeo para MP4</strong>
+                <small>Selecionar vídeos do computador</small>
+              </div>
               <input type="file" id="fileVideoInput" accept="video/*" multiple hidden />
             </label>
             <label class="btn-conv btn-conv-audio">
-              🎵 Extrair Áudio (WAV Alta Qualidade)
+              <span class="conv-icon">🎵</span>
+              <div>
+                <strong>Extrair Áudio de Alta Qualidade (WAV)</strong>
+                <small>De qualquer arquivo de vídeo ou áudio</small>
+              </div>
               <input type="file" id="fileAudioInput" accept="video/*,audio/*" multiple hidden />
             </label>
           </div>
@@ -155,12 +199,13 @@
 
       <div class="queue-section">
         <div class="queue-header">
-          <h2>Fila de Conversão</h2>
+          <h2>Arquivos Convertidos</h2>
         </div>
         <div id="converterQueue" class="queue-list">
           <div class="empty-state" id="emptyConvMsg">
             <div class="empty-icon">🔄</div>
-            <p>Nenhum arquivo selecionado para conversão.</p>
+            <h3>Nenhum arquivo na fila</h3>
+            <p>Escolha um dos botões acima para converter ou extrair o áudio de arquivos do seu PC.</p>
           </div>
         </div>
       </div>
@@ -170,64 +215,31 @@
     <section id="tab-history" class="tab-panel">
       <div class="queue-section">
         <div class="queue-header">
-          <h2>Histórico de Downloads Salvos no Navegador</h2>
+          <h2>Histórico de Downloads Recentes</h2>
           <button id="btnClearHistory" class="btn-danger-sm">🗑️ Limpar Histórico</button>
         </div>
         <div id="historyList" class="queue-list"></div>
       </div>
     </section>
 
-    <!-- ABA 4: VERSÃO DESKTOP PYTHON -->
-    <section id="tab-desktop" class="tab-panel">
-      <div class="control-card desktop-promo">
-        <div class="desktop-grid">
-          <div>
-            <h2>🖥️ Youtube Downloader Ultimate para Windows (Desktop)</h2>
-            <p class="muted-text">
-              Para downloads pesados em <strong>4K 60fps</strong>, <strong>Playlists inteiras com 1 clique</strong>, conversão nativa via <strong>FFmpeg</strong> e <strong>extração automática de Cookies do Chrome/Edge/Firefox</strong> (para vídeos privados ou restritos), utilize também a versão Desktop incluída neste projeto!
-            </p>
-            <ul class="feature-list">
-              <li>✅ <strong>Auto-instalação do yt-dlp e FFmpeg</strong> com barra de progresso no rodapé</li>
-              <li>✅ <strong>Cookies Automáticos do Navegador</strong> (Chrome, Edge, Firefox, Brave, Opera) sem precisar exportar `.txt`</li>
-              <li>✅ <strong>Recorte exato de trechos</strong> (`--download-sections`) baixando apenas os minutos desejados</li>
-              <li>✅ <strong>Suporte a Playlists Completas</strong> com fila individual e miniaturas</li>
-              <li>✅ <strong>Conversor Local FFmpeg</strong> com porcentagem em tempo real (MP4 H.264, MP3 192kbps, WAV)</li>
-            </ul>
-            <div class="desktop-actions">
-              <a href="https://github.com/willyelias/yt-downloader-ultimate" target="_blank" rel="noopener" class="btn-primary">
-                📦 Acessar Repositório no GitHub
-              </a>
-            </div>
-          </div>
-          <div class="code-box">
-            <h3>Como executar no PC (Python):</h3>
-            <pre><code>git clone https://github.com/willyelias/yt-downloader-ultimate.git
-cd yt-downloader-ultimate
-pip install -r requirements.txt
-python app.py</code></pre>
-            <h3>Como gerar o executável (.exe):</h3>
-            <pre><code>pip install pyinstaller
-pyinstaller --noconsole --onefile --name "YTDownloaderUltimate" app.py</code></pre>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Modal de Player / Motor Cloud -->
+    <!-- Modal de Pré-visualização (Player de Vídeo) -->
     <div id="playerModal" class="modal-backdrop hidden">
       <div class="modal-card">
         <div class="modal-header">
-          <h3 id="modalTitle">Visualização / Download</h3>
+          <h3 id="modalTitle">Pré-visualização do Vídeo</h3>
           <button id="btnCloseModal" class="btn-icon">✕</button>
         </div>
         <div id="modalBody" class="modal-body"></div>
       </div>
     </div>
 
+    <!-- Container para Notificações Toast -->
+    <div id="toastContainer" class="toast-container"></div>
+
     <!-- Rodapé -->
     <footer class="app-footer">
-      <span>📁 Os downloads na versão Web são salvos automaticamente na pasta padrão do seu navegador.</span>
-      <span>Youtube Downloader Ultimate v2.0 • Igreja & Mídia</span>
+      <span>📁 Os arquivos concluídos são transferidos diretamente para a pasta <strong>Downloads</strong> do seu dispositivo.</span>
+      <span>Youtube Downloader Ultimate • Igreja & Mídia</span>
     </footer>
   </div>
 

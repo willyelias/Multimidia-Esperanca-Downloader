@@ -1,4 +1,4 @@
-// Youtube Downloader Ultimate - Lógica Web (Netlify Serverless + Conversor Client-Side)
+// Youtube Downloader Ultimate - Lógica Web (Download Direto Automático no Computador)
 
 const STORAGE_KEY = "yt_downloader_ultimate_history_v2";
 
@@ -13,7 +13,6 @@ const urlInput = document.getElementById("urlInput");
 const btnPaste = document.getElementById("btnPaste");
 const modeBtns = document.querySelectorAll("#modeSwitch .seg-btn");
 const qualitySelect = document.getElementById("qualitySelect");
-const scopeSelect = document.getElementById("scopeSelect");
 const subsCheck = document.getElementById("subsCheck");
 const trimCheck = document.getElementById("trimCheck");
 const trimStart = document.getElementById("trimStart");
@@ -38,6 +37,7 @@ const playerModal = document.getElementById("playerModal");
 const modalTitle = document.getElementById("modalTitle");
 const modalBody = document.getElementById("modalBody");
 const btnCloseModal = document.getElementById("btnCloseModal");
+const toastContainer = document.getElementById("toastContainer");
 
 // --- NAVEGAÇÃO POR ABAS ---
 tabBtns.forEach((btn) => {
@@ -76,6 +76,7 @@ btnPaste.addEventListener("click", async () => {
     if (text) {
       urlInput.value = text.trim();
       urlInput.focus();
+      showToast("📋 Link colado da área de transferência!");
     }
   } catch (_) {
     urlInput.focus();
@@ -105,6 +106,37 @@ playerModal.addEventListener("click", (e) => {
 function closeModal() {
   playerModal.classList.add("hidden");
   modalBody.innerHTML = "";
+}
+
+function showToast(message) {
+  if (!toastContainer) return;
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
+  toastContainer.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transition = "opacity 0.3s ease";
+    setTimeout(() => toast.remove(), 300);
+  }, 4200);
+}
+
+// --- DISPARO AUTOMÁTICO DE DOWNLOAD NO COMPUTADOR ---
+function triggerAutoSaveToComputer(downloadUrl, filename = "video") {
+  if (!downloadUrl) return;
+  try {
+    // O servidor envia Content-Disposition: attachment, então criar um link/iframe oculto
+    // inicia imediatamente a transferência nativa do arquivo para a pasta Downloads do PC
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.setAttribute("download", filename);
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 2000);
+  } catch (_) {
+    window.location.assign(downloadUrl);
+  }
 }
 
 // --- UTILITÁRIOS ---
@@ -148,7 +180,7 @@ async function handleAddDownload() {
   try {
     parsedUrl = new URL(rawUrl).href;
   } catch (_) {
-    alert("Por favor, insira um link válido começando com http:// ou https://");
+    showToast("⚠️ Insira um link válido começando com https://");
     return;
   }
 
@@ -172,7 +204,6 @@ async function handleAddDownload() {
 }
 
 async function fetchMetadata(url) {
-  // 1. Tenta via Netlify Function (/api/info)
   try {
     const res = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
     if (res.ok) {
@@ -181,7 +212,6 @@ async function fetchMetadata(url) {
     }
   } catch (_) {}
 
-  // 2. Fallback direto via NoEmbed no navegador
   const ytId = extractYouTubeId(url);
   try {
     const r = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`);
@@ -204,7 +234,7 @@ async function fetchMetadata(url) {
 
   return {
     id: ytId,
-    title: ytId ? `Vídeo do YouTube (${ytId})` : url,
+    title: ytId ? `Vídeo (${ytId})` : url,
     author: "Mídia Online",
     thumbnail: ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : null,
     platform: "Web",
@@ -227,10 +257,10 @@ async function createDownloadCard(opts) {
   card.innerHTML = `
     <div class="item-thumb">⏳</div>
     <div class="item-body">
-      <div class="item-info">${prefix} Obtendo dados do link...</div>
+      <div class="item-info">${prefix} Obtendo informações do vídeo...</div>
       <div class="item-title">${url}</div>
       <div class="progress-track">
-        <div class="progress-bar ${isAudio ? "audio" : "video"}" style="width: 8%"></div>
+        <div class="progress-bar ${isAudio ? "audio" : "video"}" style="width: 6%"></div>
       </div>
     </div>
     <div class="item-actions">
@@ -254,7 +284,7 @@ async function createDownloadCard(opts) {
     updateEmptyQueueState();
   });
 
-  // Passo 1: Metadados
+  // Passo 1: Metadados rápidos
   const meta = await fetchMetadata(url);
   if (cancelled) return;
 
@@ -265,73 +295,134 @@ async function createDownloadCard(opts) {
     thumbEl.textContent = iconMode;
   }
 
-  infoEl.textContent = `${prefix} Preparando stream de download...`;
-  barEl.style.width = "45%";
+  infoEl.textContent = `${prefix} Iniciando download: 10%`;
+  barEl.style.width = "10%";
 
-  // Passo 2: Resolução do link de download (/api/download)
-  let resolved = null;
+  // Passo 2: Inicia o job limpo via /api/download
+  let initData = null;
   try {
     const res = await fetch("/api/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, mode, quality, trimStart: tStart, trimEnd: tEnd }),
+      body: JSON.stringify({
+        action: "init",
+        url,
+        mode,
+        quality,
+        trimStart: tStart,
+        trimEnd: tEnd,
+      }),
     });
     if (res.ok) {
-      resolved = await res.json();
+      initData = await res.json();
     }
   } catch (_) {}
 
   if (cancelled) return;
 
-  if (!resolved) {
-    const fmt = isAudio ? "mp3" : quality === "2160" ? "4k" : quality || "1080";
-    resolved = {
-      status: "external_engine",
-      engineUrl: `https://loader.to/api/button/?url=${encodeURIComponent(
-        url
-      )}&f=${encodeURIComponent(fmt)}&color=2cc985`,
-      provider: "Cloud Transcoder",
-    };
+  if (!initData || initData.error) {
+    barEl.style.width = "0%";
+    infoEl.textContent = `${prefix} Erro: ${
+      initData?.error || "Não foi possível processar este link."
+    }`;
+    infoEl.classList.add("error");
+    return;
   }
 
-  // Concluído!
+  // Atualiza título/capa caso o servidor tenha retornado mais detalhes
+  if (initData.title && (!meta.title || meta.title.startsWith("Vídeo ("))) {
+    meta.title = initData.title;
+    titleEl.textContent = initData.title;
+  }
+  if (initData.thumbnail && !meta.thumbnail) {
+    meta.thumbnail = initData.thumbnail;
+    thumbEl.innerHTML = `<img src="${initData.thumbnail}" alt="Thumbnail" loading="lazy" />`;
+  }
+
+  let finalDownloadUrl = initData.downloadUrl || null;
+
+  // Passo 3: Se estiver em processamento ("polling"), acompanha o progresso real até 100%
+  if (initData.status === "polling" && initData.jobId) {
+    const jobId = initData.jobId;
+    const progressUrl = initData.progressUrl || "";
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (cancelled) return;
+      await new Promise((r) => setTimeout(r, 1400));
+      if (cancelled) return;
+
+      try {
+        const progRes = await fetch(
+          `/api/download?action=progress&jobId=${encodeURIComponent(
+            jobId
+          )}&progressUrl=${encodeURIComponent(progressUrl)}`
+        );
+        if (!progRes.ok) continue;
+        const progData = await progRes.json();
+
+        if (progData.error) {
+          throw new Error(progData.error);
+        }
+
+        const pct = progData.progress || Math.min(95, 15 + attempt * 5);
+        barEl.style.width = `${pct}%`;
+        infoEl.textContent = `${prefix} Baixando e preparando arquivo: ${pct}%`;
+
+        if (progData.status === "completed" && progData.downloadUrl) {
+          finalDownloadUrl = progData.downloadUrl;
+          break;
+        }
+      } catch (err) {
+        barEl.style.width = "0%";
+        infoEl.textContent = `${prefix} Erro: ${err.message}`;
+        infoEl.classList.add("error");
+        return;
+      }
+    }
+  }
+
+  if (cancelled) return;
+
+  if (!finalDownloadUrl) {
+    barEl.style.width = "0%";
+    infoEl.textContent = `${prefix} Tempo limite excedido ao preparar vídeo. Tente novamente.`;
+    infoEl.classList.add("error");
+    return;
+  }
+
+  // Passo 4: Concluído! Baixa automaticamente para o computador do usuário
   barEl.style.width = "100%";
   card.dataset.done = "true";
-  infoEl.textContent = `${prefix} Pronto para salvar!`;
+  infoEl.textContent = `${prefix} Concluído! Transferindo para o seu computador...`;
   infoEl.classList.add(isAudio ? "audio-done" : "video-done");
+
+  const ext = isAudio ? "mp3" : "mp4";
+  const safeName = `${(meta.title || "video").replace(/[<>:"/\\|?*]+/g, "").slice(0, 80)}.${ext}`;
+
+  // Dispara o download automático no navegador sem abrir abas externas!
+  triggerAutoSaveToComputer(finalDownloadUrl, safeName);
+  showToast(`✅ Download concluído: "${(meta.title || "").slice(0, 40)}..."`);
 
   actionsEl.innerHTML = "";
 
-  // Botão Preview (▶)
+  // Botão Visualizar (▶)
   const btnPreview = document.createElement("button");
   btnPreview.className = "btn-action preview";
   btnPreview.innerHTML = "▶ Visualizar";
   btnPreview.addEventListener("click", () => {
-    openPreviewModal(meta, resolved, { tStart, tEnd });
+    openPreviewModal(meta, finalDownloadUrl, { tStart, tEnd });
   });
   actionsEl.appendChild(btnPreview);
 
-  // Botão Salvar Arquivo (⬇)
-  if (resolved.status === "stream" && resolved.downloadUrl) {
-    const aSave = document.createElement("a");
-    aSave.className = `btn-action ${isAudio ? "save-audio" : "save-video"}`;
-    aSave.href = resolved.downloadUrl;
-    aSave.target = "_blank";
-    aSave.rel = "noopener";
-    aSave.download = resolved.filename || "download";
-    aSave.innerHTML = isAudio ? "⬇ Baixar MP3" : "⬇ Baixar MP4";
-    actionsEl.appendChild(aSave);
-  } else {
-    const btnCloud = document.createElement("button");
-    btnCloud.className = `btn-action ${isAudio ? "save-audio" : "save-video"}`;
-    btnCloud.innerHTML = isAudio ? "⬇ Salvar MP3" : "⬇ Salvar MP4";
-    btnCloud.addEventListener("click", () => {
-      openTranscoderModal(meta, resolved.engineUrl);
-    });
-    actionsEl.appendChild(btnCloud);
-  }
+  // Botão Baixar Novamente (⬇) direto do CDN limpo
+  const aSave = document.createElement("a");
+  aSave.className = `btn-action ${isAudio ? "save-audio" : "save-video"}`;
+  aSave.href = finalDownloadUrl;
+  aSave.download = safeName;
+  aSave.innerHTML = isAudio ? "⬇ Salvar MP3" : "⬇ Salvar MP4";
+  actionsEl.appendChild(aSave);
 
-  // Botão Remover (✕)
+  // Botão Remover da lista (✕)
   const btnRemove = document.createElement("button");
   btnRemove.className = "btn-action cancel";
   btnRemove.textContent = "✕";
@@ -352,8 +443,8 @@ async function createDownloadCard(opts) {
   });
 }
 
-function openPreviewModal(meta, resolved, trim) {
-  modalTitle.textContent = meta.title || "Reproduzir Mídia";
+function openPreviewModal(meta, directUrl, trim) {
+  modalTitle.textContent = meta.title || "Pré-visualização";
   modalBody.innerHTML = "";
 
   const ytId = meta.id || extractYouTubeId(meta.url);
@@ -369,42 +460,23 @@ function openPreviewModal(meta, resolved, trim) {
     const iframe = document.createElement("iframe");
     iframe.src = embedUrl;
     iframe.width = "100%";
-    iframe.height = "360";
+    iframe.height = "380";
     iframe.style.border = "none";
-    iframe.style.borderRadius = "8px";
+    iframe.style.borderRadius = "10px";
     iframe.allow = "autoplay; encrypted-media; picture-in-picture";
     iframe.allowFullscreen = true;
     modalBody.appendChild(iframe);
-  } else if (resolved?.downloadUrl && resolved.status === "stream") {
+  } else if (directUrl) {
     const video = document.createElement("video");
-    video.src = resolved.downloadUrl;
+    video.src = directUrl;
     video.controls = true;
     video.autoplay = true;
     video.style.maxWidth = "100%";
     video.style.maxHeight = "380px";
+    video.style.borderRadius = "10px";
     modalBody.appendChild(video);
-  } else {
-    const p = document.createElement("p");
-    p.className = "muted-text";
-    p.innerHTML = `Link original: <a href="${meta.url}" target="_blank" rel="noopener" style="color:#2cc985">${meta.url}</a>`;
-    modalBody.appendChild(p);
   }
 
-  playerModal.classList.remove("hidden");
-}
-
-function openTranscoderModal(meta, engineUrl) {
-  modalTitle.textContent = `Processando Download: ${(meta.title || "").slice(0, 48)}`;
-  modalBody.innerHTML = `
-    <p class="muted-text" style="text-align:center">
-      Clique no botão abaixo dentro do painel de conversão rápida para concluir o salvamento do arquivo:
-    </p>
-    <iframe
-      src="${engineUrl}"
-      style="width:100%;height:75px;border:none;border-radius:8px;overflow:hidden;background:#1a1a1a;"
-      scrolling="no"
-    ></iframe>
-  `;
   playerModal.classList.remove("hidden");
 }
 
@@ -450,12 +522,11 @@ async function processLocalConversion(file, targetFormat) {
 
   try {
     if (isAudio) {
-      // Decodifica áudio/vídeo local e gera WAV PCM recortado de alta fidelidade
       const arrayBuf = await file.arrayBuffer();
       barEl.style.width = "50%";
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const decoded = await audioCtx.decodeAudioData(arrayBuf);
-      barEl.style.width = "80%";
+      barEl.style.width = "85%";
 
       const sampleRate = decoded.sampleRate;
       const startSample = Math.max(0, Math.floor(tStartSec * sampleRate));
@@ -473,8 +544,11 @@ async function processLocalConversion(file, targetFormat) {
       const outName = `${baseName}${tStartSec || tEndSec ? "_recorte" : ""}.wav`;
 
       barEl.style.width = "100%";
-      infoEl.textContent = "Conversão de Áudio Concluída!";
+      card.dataset.done = "true";
+      infoEl.textContent = "Conversão Concluída! Salvando no computador...";
       infoEl.classList.add("audio-done");
+
+      triggerAutoSaveToComputer(blobUrl, outName);
 
       const a = document.createElement("a");
       a.className = "btn-action save-audio";
@@ -484,17 +558,20 @@ async function processLocalConversion(file, targetFormat) {
       actionsEl.appendChild(a);
       audioCtx.close();
     } else {
-      // Vídeo local pronto para download / stream
       barEl.style.width = "100%";
+      card.dataset.done = "true";
       const blobUrl = URL.createObjectURL(file);
       const baseName = file.name.replace(/\.[^/.]+$/, "");
-      infoEl.textContent = "Vídeo Pronto!";
+      const outName = `${baseName}.mp4`;
+      infoEl.textContent = "Vídeo Pronto! Salvando no computador...";
       infoEl.classList.add("video-done");
+
+      triggerAutoSaveToComputer(blobUrl, outName);
 
       const a = document.createElement("a");
       a.className = "btn-action save-video";
       a.href = blobUrl;
-      a.download = `${baseName}.mp4`;
+      a.download = outName;
       a.textContent = "⬇ Salvar MP4";
       actionsEl.appendChild(a);
     }
@@ -509,7 +586,7 @@ function audioBufferToWavBlob(buffer, startSample, endSample) {
   const numChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
   const frameCount = endSample - startSample;
-  const bytesPerSample = 2; // 16-bit PCM
+  const bytesPerSample = 2;
   const blockAlign = numChannels * bytesPerSample;
   const dataSize = frameCount * blockAlign;
   const arrayBuffer = new ArrayBuffer(44 + dataSize);
@@ -526,7 +603,7 @@ function audioBufferToWavBlob(buffer, startSample, endSample) {
   writeStr(8, "WAVE");
   writeStr(12, "fmt ");
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
+  view.setUint16(20, 1, true);
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, sampleRate * blockAlign, true);
@@ -579,7 +656,8 @@ function renderHistory() {
     historyList.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">📜</div>
-        <p>Nenhum download registrado no histórico ainda.</p>
+        <h3>Histórico vazio</h3>
+        <p>Seus downloads concluídos aparecerão aqui para acesso rápido.</p>
       </div>
     `;
     return;
