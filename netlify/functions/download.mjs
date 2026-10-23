@@ -10,6 +10,40 @@ const CORS_HEADERS = {
 
 const API_DOMAINS = ["p.savenow.to", "p.lbserver.xyz"];
 
+function isAllowedProgressUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    if (u.protocol !== "https:") return false;
+    const host = u.hostname.toLowerCase();
+    return API_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+  } catch (_) {
+    return false;
+  }
+}
+
+function isSafePublicHttpUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    const h = u.hostname.toLowerCase();
+    if (
+      h === "localhost" ||
+      h.startsWith("127.") ||
+      h.startsWith("10.") ||
+      h.startsWith("192.168.") ||
+      h.startsWith("169.254.") ||
+      h === "0.0.0.0" ||
+      h.endsWith(".internal") ||
+      h.endsWith(".local")
+    ) {
+      return false;
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function fetchWithTimeout(resource, options = {}, timeout = 6500) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
@@ -50,9 +84,13 @@ export async function handler(event) {
       }
 
       const urlsToTry = [];
-      if (customProgressUrl) urlsToTry.push(customProgressUrl);
-      for (const dom of API_DOMAINS) {
-        urlsToTry.push(`https://${dom}/api/progress?id=${encodeURIComponent(jobId)}`);
+      if (customProgressUrl && isAllowedProgressUrl(customProgressUrl)) {
+        urlsToTry.push(customProgressUrl);
+      }
+      if (jobId) {
+        for (const dom of API_DOMAINS) {
+          urlsToTry.push(`https://${dom}/api/progress?id=${encodeURIComponent(jobId)}`);
+        }
       }
 
       for (const progUrl of urlsToTry) {
@@ -117,11 +155,11 @@ export async function handler(event) {
     const trimStart = body.trimStart || query.trimStart || "";
     const trimEnd = body.trimEnd || query.trimEnd || "";
 
-    if (!targetUrl) {
+    if (!targetUrl || !isSafePublicHttpUrl(targetUrl)) {
       return {
         statusCode: 400,
         headers: CORS_HEADERS,
-        body: JSON.stringify({ error: "URL obrigatória." }),
+        body: JSON.stringify({ error: "URL pública válida (http/https) é obrigatória." }),
       };
     }
 

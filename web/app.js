@@ -143,6 +143,15 @@ function triggerAutoSaveToComputer(downloadUrl, filename = "video") {
 }
 
 // --- UTILITÁRIOS ---
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function extractYouTubeId(url) {
   try {
     const u = new URL(url);
@@ -260,8 +269,8 @@ async function createDownloadCard(opts) {
   card.innerHTML = `
     <div class="item-thumb">⏳</div>
     <div class="item-body">
-      <div class="item-info">${prefix} Obtendo informações do vídeo...</div>
-      <div class="item-title">${url}</div>
+      <div class="item-info">${escapeHtml(prefix)} Obtendo informações do vídeo...</div>
+      <div class="item-title">${escapeHtml(url)}</div>
       <div class="progress-track">
         <div class="progress-bar ${isAudio ? "audio" : "video"}" style="width: 6%"></div>
       </div>
@@ -759,15 +768,15 @@ function renderHistory() {
       <div class="item-thumb">
         ${
           item.thumbnail
-            ? `<img src="${item.thumbnail}" alt="Thumb" loading="lazy" />`
+            ? `<img src="${escapeHtml(item.thumbnail)}" alt="Thumb" loading="lazy" />`
             : isAudio
             ? "🎵"
             : "🎬"
         }
       </div>
       <div class="item-body">
-        <div class="item-info">${item.date} • ${item.quality}</div>
-        <div class="item-title">${item.title}</div>
+        <div class="item-info">${escapeHtml(item.date)} • ${escapeHtml(item.quality)}</div>
+        <div class="item-title">${escapeHtml(item.title)}</div>
       </div>
       <div class="item-actions">
         <button class="btn-action preview">🔄 Baixar Novamente</button>
